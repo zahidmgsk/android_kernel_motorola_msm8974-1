@@ -78,6 +78,12 @@ enum dsi_trigger_type {
 	DSI_CMD_MODE_MDP,
 };
 
+enum dsi_panel_status_mode {
+	ESD_BTA,
+	ESD_REG,
+	ESD_MAX,
+};
+
 enum dsi_ctrl_op_mode {
 	DSI_LP_MODE,
 	DSI_HS_MODE,
@@ -266,8 +272,8 @@ struct mdss_dsi_ctrl_pdata {
 	int (*off) (struct mdss_panel_data *pdata);
 	int (*partial_update_fnc) (struct mdss_panel_data *pdata);
 	int (*check_status) (struct mdss_dsi_ctrl_pdata *pdata);
-	int (*cmdlist_commit)(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp,
-						struct dcs_cmd_req *cmdreq);
+	int (*cmdlist_commit)(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp);
+	int (*esd) (struct mdss_panel_data *pdata);
 	int (*cont_splash_on) (struct mdss_panel_data *pdata);
 	int (*get_dt_vreg_data) (struct device *dev,
 			struct dss_module_power *mp, struct device_node *node);
@@ -325,6 +331,8 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_panel_cmds off_cmds;
 	struct dsi_panel_cmds cabc_ui_cmds;
 	struct dsi_panel_cmds cabc_mv_cmds;
+	struct dsi_panel_cmds status_cmds;
+	u32 status_value;
 
 	struct dsi_panel_cmds video2cmd;
 	struct dsi_panel_cmds cmd2video;
@@ -350,6 +358,8 @@ struct mdss_dsi_ctrl_pdata {
 
 	struct dsi_panel_cmds hbm_on_cmds;
 	struct dsi_panel_cmds hbm_off_cmds;
+	struct dsi_buf status_buf;
+	int status_mode;
 };
 
 struct dsi_status_data {
@@ -410,10 +420,10 @@ void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl);
 void mdss_dsi_ctrl_init(struct mdss_dsi_ctrl_pdata *ctrl);
 void mdss_dsi_cmd_mdp_busy(struct mdss_dsi_ctrl_pdata *ctrl);
 void mdss_dsi_wait4video_done(struct mdss_dsi_ctrl_pdata *ctrl);
-int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp,
-					struct dcs_cmd_req *cmdreq);
+int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp);
 void mdss_dsi_cmdlist_kickoff(int intf);
 int mdss_dsi_bta_status_check(struct mdss_dsi_ctrl_pdata *ctrl);
+int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl);
 bool __mdss_dsi_clk_enabled(struct mdss_dsi_ctrl_pdata *ctrl, u8 clk_type);
 
 int mdss_dsi_panel_init(struct device_node *node,

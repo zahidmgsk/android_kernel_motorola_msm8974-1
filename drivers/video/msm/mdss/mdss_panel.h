@@ -352,6 +352,7 @@ struct mdss_panel_info {
 	u32 mode_gpio_state;
 	bool dynamic_fps;
 	bool ulps_feature_enabled;
+	bool esd_check_enabled;
 	char dfps_update;
 	int new_fps;
 	int panel_max_fps;
@@ -366,7 +367,6 @@ struct mdss_panel_info {
 	u32 cont_splash_enabled;
 	u32 cont_splash_feature_on;
 	bool cont_splash_esd_rdy;
-	u32 no_solid_fill;
 	u32 partial_update_enabled;
 	struct ion_handle *splash_ihdl;
 	u32 panel_power_on;

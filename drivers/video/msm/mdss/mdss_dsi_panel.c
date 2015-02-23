@@ -685,10 +685,6 @@ static int mdss_dsi_panel_cont_splash_on(struct mdss_panel_data *pdata)
 {
 	mdss_dsi_panel_regulator_on(pdata, 1);
 
-	if (pdata->panel_info.type == MIPI_VIDEO_PANEL &&
-		pdata->panel_info.no_solid_fill)
-		mdss_dsi_sw_reset(pdata);
-
 	mmi_panel_notify(MMI_PANEL_EVENT_DISPLAY_ON, NULL);
 
 #ifndef CONFIG_FB_MSM_MDSS_MDP3
@@ -1437,6 +1433,8 @@ static int mdss_dsi_parse_panel_features(struct device_node *np,
 		"qcom,ulps-enabled");
 	pr_info("%s: ulps feature %s", __func__,
 		(pinfo->ulps_feature_enabled ? "enabled" : "disabled"));
+	pinfo->esd_check_enabled = of_property_read_bool(np,
+		"qcom,esd-check-enabled");
 
 	pinfo->mipi.dynamic_switch_enabled = of_property_read_bool(np,
 		"qcom,dynamic-mode-switch-enabled");
@@ -1961,6 +1959,23 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
 		"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
 
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->status_cmds,
+			"qcom,mdss-dsi-panel-status-command",
+				"qcom,mdss-dsi-panel-status-command-state");
+	rc = of_property_read_u32(np, "qcom,mdss-dsi-panel-status-value", &tmp);
+	ctrl_pdata->status_value = (!rc ? tmp : 0);
+
+
+	ctrl_pdata->status_mode = ESD_MAX;
+	rc = of_property_read_string(np,
+				"qcom,mdss-dsi-panel-status-check-mode", &data);
+	if (!rc) {
+		if (!strcmp(data, "bta_check"))
+			ctrl_pdata->status_mode = ESD_BTA;
+		else if (!strcmp(data, "reg_read"))
+			ctrl_pdata->status_mode = ESD_REG;
+	}
+
 	rc = mdss_dsi_parse_panel_features(np, ctrl_pdata);
 	if (rc) {
 		pr_err("%s: failed to parse panel features\n", __func__);
@@ -2012,12 +2027,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	} else {
 		pr_info("%s:%d Quickdraw disabled.\n", __func__, __LINE__);
 	}
-
-	pinfo->no_solid_fill =
-		of_property_read_bool(np, "qcom,splash-no-solid-fill");
-	if (pinfo->mipi.mode == DSI_VIDEO_MODE && !pinfo->no_solid_fill)
-		pr_warn("%s: 'No Solid Fill' not set for video mode panel",
-			__func__);
 
 	if (mdss_panel_parse_optional_prop(np, pinfo, ctrl_pdata)) {
 		pr_err("Error parsing optional properties\n");

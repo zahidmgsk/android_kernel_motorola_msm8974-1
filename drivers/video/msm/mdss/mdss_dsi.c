@@ -828,12 +828,6 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata)
 				panel_data);
 	mipi = &pdata->panel_info.mipi;
 
-	if (pdata->panel_info.type == MIPI_VIDEO_PANEL &&
-			ctrl_pdata->off_cmds.link_state == DSI_LP_MODE) {
-		mdss_dsi_sw_reset(pdata);
-		mdss_dsi_host_init(pdata);
-	}
-
 	if (__mdss_dsi_ulps_feature_enabled(pdata) &&
 		(ctrl_pdata->ulps)) {
 		/* Disable ULPS mode before blanking the panel */
@@ -843,6 +837,12 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata)
 				__func__, ret);
 			return ret;
 		}
+	}
+
+	if (pdata->panel_info.type == MIPI_VIDEO_PANEL &&
+			ctrl_pdata->off_cmds.link_state == DSI_LP_MODE) {
+		mdss_dsi_sw_reset(pdata);
+		mdss_dsi_host_init(pdata);
 	}
 
 	mdss_dsi_op_mode_config(DSI_CMD_MODE, pdata);
@@ -906,6 +906,15 @@ int mdss_dsi_cont_splash_on(struct mdss_panel_data *pdata)
 	mdss_dsi_sw_reset(pdata);
 	mdss_dsi_host_init(pdata);
 	mdss_dsi_op_mode_config(mipi->mode, pdata);
+
+	if (ctrl_pdata->on_cmds.link_state == DSI_LP_MODE) {
+		ret = mdss_dsi_unblank(pdata);
+		if (ret) {
+			pr_err("%s: unblank failed\n", __func__);
+			return ret;
+		}
+	}
+
 
 	pr_debug("%s-:End\n", __func__);
 	return ret;
@@ -1095,7 +1104,7 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		mdss_dsi_clk_req(ctrl_pdata, (int)arg);
 		break;
 	case MDSS_EVENT_DSI_CMDLIST_KOFF:
-		mdss_dsi_cmdlist_commit(ctrl_pdata, 1, NULL);
+		mdss_dsi_cmdlist_commit(ctrl_pdata, 1);
 		break;
 	case MDSS_EVENT_PANEL_UPDATE_FPS:
 		if (arg != NULL) {
@@ -1743,6 +1752,15 @@ int dsi_panel_device_register(struct device_node *pan_node,
 
 	ctrl_pdata->panel_data.event_handler = mdss_dsi_event_handler;
 
+	if (ctrl_pdata->status_mode == ESD_REG)
+		ctrl_pdata->check_status = mdss_dsi_reg_status_check;
+	else if (ctrl_pdata->status_mode == ESD_BTA)
+		ctrl_pdata->check_status = mdss_dsi_bta_status_check;
+
+	if (ctrl_pdata->status_mode == ESD_MAX) {
+		pr_err("%s: Using default BTA for ESD check\n", __func__);
+		ctrl_pdata->check_status = mdss_dsi_bta_status_check;
+	}
 	if (ctrl_pdata->bklt_ctrl == BL_PWM)
 		mdss_dsi_panel_pwm_cfg(ctrl_pdata);
 

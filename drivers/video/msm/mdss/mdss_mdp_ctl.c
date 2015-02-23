@@ -309,6 +309,7 @@ static u32 mdss_mdp_perf_calc_pipe_prefill_cmd(struct mdss_mdp_prefill_params
  * @pipe:	Source pipe struct containing updated pipe params
  * @perf:	Structure containing values that should be updated for
  *		performance tuning
+ * @apply_fudge:	Boolean to determine if mdp clock fudge is applicable
  *
  * Function calculates the minimum required performance calculations in order
  * to avoid MDP underflow. The calculations are based on the way MDP
@@ -317,7 +318,7 @@ static u32 mdss_mdp_perf_calc_pipe_prefill_cmd(struct mdss_mdp_prefill_params
  */
 int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 	struct mdss_mdp_perf_params *perf, struct mdss_mdp_img_rect *roi,
-	int tune)
+	int tune, bool apply_fudge)
 {
 	struct mdss_mdp_mixer *mixer;
 	int fps = DEFAULT_FRAME_RATE;
@@ -364,7 +365,7 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 	 * no need to account for these lines in MDP clock or request bus
 	 * bandwidth to fetch them.
 	 */
-	src_h = src.h >> pipe->vert_deci;
+	src_h = DECIMATED_DIMENSION(src.h, pipe->vert_deci);
 
 	quota = fps * src.w * src_h;
 
@@ -397,7 +398,10 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 		perf->bw_overlap = (quota / dst.h) * v_total;
 	}
 
-	perf->mdp_clk_rate = mdss_mdp_clk_fudge_factor(mixer, rate);
+	if (apply_fudge)
+		perf->mdp_clk_rate = mdss_mdp_clk_fudge_factor(mixer, rate);
+	else
+		perf->mdp_clk_rate = rate;
 
 	prefill_params.smp_bytes = mdss_mdp_smp_get_size(pipe);
 	prefill_params.xres = xres;
@@ -453,6 +457,8 @@ static void mdss_mdp_perf_calc_mixer(struct mdss_mdp_mixer *mixer,
 	u64 bw_overlap[MDSS_MDP_MAX_STAGE] = { 0 };
 	u32 v_region[MDSS_MDP_MAX_STAGE * 2] = { 0 };
 	u32 prefill_bytes = 0;
+	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+	bool apply_fudge = true;
 
 	BUG_ON(num_pipes > MDSS_MDP_MAX_STAGE);
 
@@ -487,13 +493,36 @@ static void mdss_mdp_perf_calc_mixer(struct mdss_mdp_mixer *mixer,
 	memset(bw_overlap, 0, sizeof(u64) * MDSS_MDP_MAX_STAGE);
 	memset(v_region, 0, sizeof(u32) * MDSS_MDP_MAX_STAGE * 2);
 
+	/*
+	* Apply this logic only for 8x26 to reduce clock rate
+	* for single video playback use case
+	*/
+	if (IS_MDSS_MAJOR_MINOR_SAME(mdata->mdp_rev, MDSS_MDP_HW_REV_101)
+		 && mixer->type == MDSS_MDP_MIXER_TYPE_INTF) {
+		u32 npipes = 0;
+		for (i = 0; i < MDSS_MDP_MAX_STAGE; i++) {
+			pipe = mixer->stage_pipe[i];
+			if (pipe) {
+				if (npipes) {
+					apply_fudge = true;
+					break;
+				}
+				npipes++;
+				apply_fudge = !(pipe->src_fmt->is_yuv)
+					|| !(pipe->flags
+					& MDP_SOURCE_ROTATED_90);
+			}
+		}
+	}
+
 	for (i = 0; i < num_pipes; i++) {
 		struct mdss_mdp_perf_params tmp;
 		pipe = pipe_list[i];
 		if (pipe == NULL)
 			continue;
 
-		if (mdss_mdp_perf_calc_pipe(pipe, &tmp, &mixer->roi, 0))
+		if (mdss_mdp_perf_calc_pipe(pipe, &tmp, &mixer->roi, 0,
+			apply_fudge))
 			continue;
 		prefill_bytes += tmp.prefill_bytes;
 		bw_overlap[i] = tmp.bw_overlap;
@@ -1241,15 +1270,6 @@ int mdss_mdp_wb_mixer_destroy(struct mdss_mdp_mixer *mixer)
 	return 0;
 }
 
-static inline struct mdss_mdp_ctl *mdss_mdp_get_split_ctl(
-		struct mdss_mdp_ctl *ctl)
-{
-	if (ctl && ctl->mixer_right && (ctl->mixer_right->ctl != ctl))
-		return ctl->mixer_right->ctl;
-
-	return NULL;
-}
-
 int mdss_mdp_ctl_splash_finish(struct mdss_mdp_ctl *ctl, bool handoff)
 {
 	struct mdss_mdp_ctl *sctl = mdss_mdp_get_split_ctl(ctl);
@@ -1479,7 +1499,6 @@ struct mdss_mdp_ctl *mdss_mdp_ctl_init(struct mdss_panel_data *pdata,
 	ctl->mfd = mfd;
 	ctl->panel_data = pdata;
 	ctl->is_video_mode = false;
-	ctl->no_solid_fill = false;
 	ctl->panel_on_locked = NULL;
 
 	switch (pdata->panel_info.type) {
@@ -1496,8 +1515,6 @@ struct mdss_mdp_ctl *mdss_mdp_ctl_init(struct mdss_panel_data *pdata,
 			ctl->intf_num = MDSS_MDP_INTF1;
 		else
 			ctl->intf_num = MDSS_MDP_INTF2;
-		if (pdata->panel_info.no_solid_fill)
-			ctl->no_solid_fill = true;
 		ctl->intf_type = MDSS_INTF_DSI;
 		ctl->opmode = MDSS_MDP_CTL_OP_VIDEO_MODE;
 		ctl->start_fnc = mdss_mdp_video_start;
@@ -2345,6 +2362,33 @@ int mdss_mdp_mixer_pipe_update(struct mdss_mdp_pipe *pipe, int params_changed)
 	mutex_unlock(&ctl->lock);
 
 	return 0;
+}
+
+/**
+ * mdss_mdp_mixer_unstage_all() - Unstage all pipes from mixer
+ * @mixer:	Mixer from which to unstage all pipes
+ *
+ * Unstage any pipes that are currently attached to mixer.
+ *
+ * NOTE: this will not update the pipe structure, and thus a full
+ * deinitialization or reconfiguration of all pipes is expected after this call.
+ */
+void mdss_mdp_mixer_unstage_all(struct mdss_mdp_mixer *mixer)
+{
+	struct mdss_mdp_pipe *tmp;
+	int i;
+
+	if (!mixer)
+		return;
+
+	for (i = 0; i < MDSS_MDP_MAX_STAGE; i++) {
+		tmp = mixer->stage_pipe[i];
+		if (tmp) {
+			mixer->stage_pipe[i] = NULL;
+			mixer->params_changed++;
+			tmp->params_changed++;
+		}
+	}
 }
 
 int mdss_mdp_mixer_pipe_unstage(struct mdss_mdp_pipe *pipe)
