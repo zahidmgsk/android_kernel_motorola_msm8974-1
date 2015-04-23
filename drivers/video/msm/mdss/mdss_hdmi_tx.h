@@ -34,6 +34,7 @@ enum hdmi_tx_power_module_type {
 /* Data filled from device tree */
 struct hdmi_tx_platform_data {
 	bool primary;
+	bool cond_power_on;
 	struct dss_io_data io[HDMI_TX_MAX_IO];
 	struct dss_module_power power_data[HDMI_TX_MAX_PM];
 };
@@ -81,6 +82,7 @@ struct hdmi_tx_ctrl {
 
 	bool hdcp_feature_on;
 	bool ds_registered;
+	bool hpd_disabled;
 	u32 present_hdcp;
 
 	u8 spd_vendor_name[9];
