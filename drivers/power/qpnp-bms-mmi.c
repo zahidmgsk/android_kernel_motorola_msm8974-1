@@ -916,7 +916,7 @@ static int get_simultaneous_batt_v_and_i(struct qpnp_bms_chip *chip,
 
 static int estimate_ocv(struct qpnp_bms_chip *chip)
 {
-	int ibat_ua, vbat_uv, ocv_est_uv;
+	int ibat_ua, vbat_uv = 0, ocv_est_uv;
 	int rc;
 	int rbatt_mohm = chip->default_rbatt_mohm + chip->r_conn_mohm
 					+ chip->rbatt_capacitive_mohm;
@@ -2326,7 +2326,7 @@ out:
 
 static int clamp_soc_based_on_voltage(struct qpnp_bms_chip *chip, int soc)
 {
-	int rc, vbat_uv;
+	int rc, vbat_uv = 0;
 
 	rc = get_battery_voltage(chip, &vbat_uv);
 	if (rc < 0) {
@@ -2609,7 +2609,7 @@ done_calculating:
 static int calculate_soc_from_voltage(struct qpnp_bms_chip *chip)
 {
 	int voltage_range_uv, voltage_remaining_uv, voltage_based_soc;
-	int rc, vbat_uv;
+	int rc, vbat_uv = 0;
 
 	rc = get_battery_voltage(chip, &vbat_uv);
 	if (rc < 0) {
@@ -2876,7 +2876,7 @@ static void configure_vbat_monitor_high(struct qpnp_bms_chip *chip)
 static void btm_notify_vbat(enum qpnp_tm_state state, void *ctx)
 {
 	struct qpnp_bms_chip *chip = ctx;
-	int vbat_uv;
+	int vbat_uv = 0;
 	struct qpnp_vadc_result result;
 	int rc;
 	u8 btm_lsb, btm_msb;
